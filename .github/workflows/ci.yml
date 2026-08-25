@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup show
+      - run: cargo fmt --all --check
+      - run: cargo check --workspace --all-targets --locked
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: RUSTDOCFLAGS='-D warnings' cargo doc --workspace --no-deps --locked
+      - run: cargo build --release --workspace --locked
+
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    # A cold Windows runner compiles both debug tests and the optimized CLI;
+    # observed clean builds can legitimately exceed 30 minutes.
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup show
+      - run: cargo test --workspace --locked
+      - run: cargo build --release --locked -p rift-cli
+      - name: Live direct/WSS acceptance
+        if: runner.os == 'Linux'
+        run: >-
+          scripts/remote-smoke.sh --remote local --relay-host 127.0.0.1
+          --relay-port 0 --artifact-dir target/ci-local-acceptance
+      - name: Doctor
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            target/release/rift.exe --json doctor
+          else
+            target/release/rift --json doctor
+          fi
+
+  package-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup show
+      - run: scripts/package-release.sh target/dist
+      - name: Installer smoke test
+        run: |
+          archive=$(find target/dist -maxdepth 1 -type f -name '*.tar.gz' -print -quit)
+          mkdir "$RUNNER_TEMP/rift-bundle"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/rift-bundle"
+          "$RUNNER_TEMP"/rift-bundle/rift-*/install.sh --prefix "$RUNNER_TEMP/rift-bin"
+          "$RUNNER_TEMP/rift-bin/rift" --json doctor
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rift-linux
+          path: target/dist/*.tar.gz*
+
+  package-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: rustup show
+      - shell: pwsh
+        run: ./scripts/package-windows.ps1 -OutDir target/dist
+      - name: Installer smoke test
+        shell: pwsh
+        run: |
+          $archive = (Get-ChildItem -File target/dist -Filter '*.zip').FullName
+          Expand-Archive -LiteralPath $archive -DestinationPath "$env:RUNNER_TEMP/rift-bundle"
+          $bundle = (Get-ChildItem -Directory "$env:RUNNER_TEMP/rift-bundle").FullName
+          & "$bundle/install.ps1" -InstallDir "$env:RUNNER_TEMP/rift-bin" -NoPath
+          & "$env:RUNNER_TEMP/rift-bin/rift.exe" --json doctor
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rift-windows
+          path: target/dist/*.zip*

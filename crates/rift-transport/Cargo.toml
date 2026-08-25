@@ -1,0 +1,17 @@
+[package]
+name = "rift-transport"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+asupersync.workspace = true
+bytes.workspace = true
+quinn-proto.workspace = true
+rcgen.workspace = true
+turn-client-proto.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

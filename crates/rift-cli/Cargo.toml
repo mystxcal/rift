@@ -1,0 +1,25 @@
+[package]
+name = "rift-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "rift"
+path = "src/main.rs"
+
+[dependencies]
+asupersync.workspace = true
+clap.workspace = true
+rift-protocol = { path = "../rift-protocol" }
+rift-relay = { path = "../rift-relay" }
+rift-runtime = { path = "../rift-runtime" }
+serde.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]
+tempfile = "3.27.0"
+
+[lints]
+workspace = true
